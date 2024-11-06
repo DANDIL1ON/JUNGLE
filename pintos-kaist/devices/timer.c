@@ -7,6 +7,7 @@
 #include "threads/io.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "lib/kernel/list.h"
 
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -17,8 +18,11 @@
 #error TIMER_FREQ <= 1000 recommended
 #endif
 
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+
 /* Number of timer ticks since OS booted. */
-static int64_t ticks;
+static int64_t ticks; // tick? 하드웨어 타이머가 일정 주기로 발생시키는 신호이자, 특정한 시간 간격을 나타내는 단위
+static int64_t global_tick = INT64_MAX;
 
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
@@ -32,17 +36,21 @@ static void real_time_sleep (int64_t num, int32_t denom);
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
    corresponding interrupt. */
-void
-timer_init (void) {
+// 타이머 칩 = 타이머 인터럽트를 주기적을 발생시키는 하드웨어
+void 
+timer_init (void) { // 타이머 칩의 타이머 인터럽트 주기를 초기화하는 함수, 주기적으로 호출되면서 ticks를 증가시킴
 	/* 8254 input frequency divided by TIMER_FREQ, rounded to
 	   nearest. */
 	uint16_t count = (1193180 + TIMER_FREQ / 2) / TIMER_FREQ;
-
+// outb는 주어진 포트 주소로 값을 전송하는 함수이다.
 	outb (0x43, 0x34);    /* CW: counter 0, LSB then MSB, mode 2, binary. */
+  // Ox43은 타이머 칩의 제어 레지스터를 나타내는 포트 주소
 	outb (0x40, count & 0xff);
 	outb (0x40, count >> 8);
 
 	intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  // 타이머 인터럽트와 예외 처리 핸들러를 연결시켜주는 함수, 인터럽트 번호와 핸들러 함수를 연결시켜준다.
+  // 이 함수를 통해 타이머 칩이 인터럽트를 발생시킬 때마다, timer_interrupt()가 호출됨
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -71,17 +79,19 @@ timer_calibrate (void) {
 }
 
 /* Returns the number of timer ticks since the OS booted. */
+// OS가 부팅 되고 난 뒤부터 현재 시점까지의 틱수를 반환하는 함수
 int64_t
 timer_ticks (void) {
-	enum intr_level old_level = intr_disable ();
-	int64_t t = ticks;
-	intr_set_level (old_level);
-	barrier ();
+	enum intr_level old_level = intr_disable (); // 현재 인터럽트 상태를 저장하고, 인터럽트를 비활성화함 -> 틱을 읽어오는 도중에 인터럽트가 발생해서 ticks를 갱신하는 것을 막아줌
+	int64_t t = ticks; // 현재 tick값을 읽어옴
+	intr_set_level (old_level);// tick값을 가져왔으니, 인터럽트를 원래 수준으로 되돌림
+	barrier (); // 컴파일 단계에서 이부분을 최적화(코드 재배치 = 순서 변경)하는 것을 방지해, 이 함수의 원자성을 보존해줌.
 	return t;
 }
 
 /* Returns the number of timer ticks elapsed since THEN, which
    should be a value once returned by timer_ticks(). */
+// 인자로 받은 then의 시점부터 현재까지의 시간 간격(tick)을 반환하는 함수
 int64_t
 timer_elapsed (int64_t then) {
 	return timer_ticks () - then;
@@ -90,11 +100,11 @@ timer_elapsed (int64_t then) {
 /* Suspends execution for approximately TICKS timer ticks. */
 void
 timer_sleep (int64_t ticks) {
-	int64_t start = timer_ticks ();
-
-	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks)
-		thread_yield ();
+  enum intr_level old_level = intr_disable ();
+  int64_t start = timer_ticks();
+  global_tick = MIN((global_tick), (start + ticks));
+  thread_sleep (start+ticks);
+  intr_set_level (old_level);
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -126,6 +136,11 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
+  if (global_tick < ticks)
+  {
+    wake_up(ticks);
+  }
+  
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
@@ -184,3 +199,4 @@ real_time_sleep (int64_t num, int32_t denom) {
 		busy_wait (loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000));
 	}
 }
+

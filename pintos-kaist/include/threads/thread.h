@@ -91,9 +91,16 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
-
+  
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
+  int64_t local_tick;
+
+  /* Elements for Priority_Donation */
+  int init_priority; /* orginal priority before priority donation */
+  struct list donations;
+  struct list_elem donator;
+
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
