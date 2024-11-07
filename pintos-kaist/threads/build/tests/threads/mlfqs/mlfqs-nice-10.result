@@ -1,4 +1,0 @@
-FAIL
-Kernel panic in run: PANIC at ../../threads/thread.c:341 in thread_current(): assertion `t->status == THREAD_RUNNING' failed.
-Call stack: 0x8004213535 0x8004207151 0x800420a123 0x80042165c3 0x80042166e1 0x8004210a38 0x8004208c18 0x8004208a8c 0x8004208e73 0x8004213df0 0x8004207699 0x8004207960 0x8004206f6a 0x8004209a9b 0x8004206a03 0x80042060df
-Translation of call stack:
