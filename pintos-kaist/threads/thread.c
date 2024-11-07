@@ -163,6 +163,14 @@ bool check_less(const struct list_elem *insert, const struct list_elem *current,
   return insert_entry->local_tick < current_entry->local_tick; // insert값이 current값보다 작으면 true 반환
 }
 
+/* compare priorities of two different threads */
+bool compare_priority(const struct list_elem *first, const struct list_elem *second, void *aux) {
+  struct thread *first_entry = list_entry(first, struct thread, elem);
+  struct thread *second_entry = list_entry(second, struct thread, elem);
+  return first_entry->priority > second_entry->priority;
+}
+
+
 /* Prints thread statistics. */
 void
 thread_print_stats (void) {
@@ -215,6 +223,7 @@ thread_create (const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock (t);
+  thread_preemption();
 
 	return tid;
 }
@@ -283,12 +292,11 @@ thread_block (void) {
 void
 thread_unblock (struct thread *t) {
 	enum intr_level old_level;
-
 	ASSERT (is_thread (t));
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+	list_insert_ordered(&ready_list, &(t->elem), compare_priority, NULL);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -351,15 +359,32 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+		list_insert_ordered(&ready_list, &(curr->elem), compare_priority, NULL);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
+}
+
+/* compare priorities and context swtich if needed */
+void thread_preemption(void) {
+  if (list_empty(&ready_list))
+  {
+    return;
+  } 
+  int current_priority = thread_get_priority();
+  struct list_elem *first_elem = list_begin(&ready_list);
+  struct thread *first_thread = list_entry(first_elem,struct thread, elem);
+  int first_priority = first_thread->priority;
+  if (current_priority < first_priority)
+  {
+    thread_yield();
+  }
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
 	thread_current ()->priority = new_priority;
+  thread_preemption();
 }
 
 /* Returns the current thread's priority. */

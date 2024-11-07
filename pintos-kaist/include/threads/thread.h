@@ -96,6 +96,11 @@ struct thread {
 	struct list_elem elem;              /* List element. */
   int64_t local_tick; // to check remaining time to sleep
 
+    /* Elements for Priority_Donation */
+  // int init_priority; /* orginal priority before priority donation */
+  // struct list donations;
+  // struct list_elem donator;
+
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
