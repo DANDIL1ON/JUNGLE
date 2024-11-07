@@ -27,6 +27,7 @@
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
+static struct list sleep_list;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -108,6 +109,7 @@ thread_init (void) {
 	/* Init the globla thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
+  list_init(&sleep_list);
 	list_init (&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -152,6 +154,13 @@ thread_tick (void) {
 	/* Enforce preemption. */
 	if (++thread_ticks >= TIME_SLICE)
 		intr_yield_on_return ();
+}
+
+/* compare two local ticks returns true if local tick of first argument is less, otherwise return false  */
+bool check_less(const struct list_elem *insert, const struct list_elem *current, void *aux) {
+  struct thread *insert_entry = list_entry(insert, struct thread, elem);
+  struct thread *current_entry = list_entry(current, struct thread, elem);
+  return insert_entry->local_tick < current_entry->local_tick; // insert값이 current값보다 작으면 true 반환
 }
 
 /* Prints thread statistics. */
@@ -208,6 +217,45 @@ thread_create (const char *name, int priority,
 	thread_unblock (t);
 
 	return tid;
+}
+
+/*Me-Thread Sleep: change status of current thread to blocked and switch to next ready t*/
+void thread_sleep (int64_t tick)
+{
+  struct thread *cur_thread;
+  cur_thread = thread_current();
+  ASSERT(cur_thread != idle_thread);
+  cur_thread->local_tick = tick;
+  
+  list_less_func * less;
+  less = check_less;
+
+  list_insert_ordered(&sleep_list, &(cur_thread->elem), less, NULL);
+  thread_block();
+}
+
+/*Me-wake_up: compare global tick and local tick, then choose which thread to wake*/
+void wake_up (int64_t tick)
+{
+  ASSERT (tick > 0);
+  enum intr_level old_level = intr_disable ();
+  struct list *sl = &sleep_list;
+  struct list_elem *e;
+  while (!list_empty(sl))
+  {
+    e = list_begin(sl);
+    struct thread *cur_thr = list_entry(e, struct thread, elem);
+    if (cur_thr->local_tick < tick)
+    {
+      list_pop_front(sl);
+      thread_unblock(cur_thr);
+    }
+    else
+    {
+      break;
+    }
+  }
+  intr_set_level (old_level);
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
